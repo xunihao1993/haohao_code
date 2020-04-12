@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+	<count>512</count>
+	<sjmx>
+		<tableName>
+			<column>column_context</column>
+		</tableName>
+		<tableName>
+			<column1>column_context1</column1>
+		</tableName>
+	</sjmx>
+</root>
