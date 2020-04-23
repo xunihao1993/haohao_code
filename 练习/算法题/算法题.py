@@ -1,10 +1,17 @@
 # -*- coding: utf-8 -*-
 import os.path
 import random
+def aaa(a,b):
+    global c
+    c = 'a'
+    def bb(a,b):
+        global c
+        c = c + 'a' + '1111'
+        return c
+    return bb(a,b)
 
 
 # 冒泡排序
-
 def maopao(list1):
     for i in range(0,len(list1)-1):
         for j in range(0,len(list1)-1-i):
@@ -72,16 +79,17 @@ def findlist():
     print("对数组进行排序",list1)
     left=0 #左标
     right=len(list1)-1 #右标
-    while left <= right:
+    while left < right:
         mid= (right+left)//2
         print('区间为',list1[left:right+1],'查找元素为',a,'节点为',mid,'左标为',left,'右标为',right)
         if a == list1[mid]:
             print('元素已找到区间为',list1[left:right+1])
             break
         elif a>list1[mid]:
-            left=mid+1
+            left=mid
         elif a<list1[mid]:
-            right=mid-1
+            right=mid
+
 
 
 
@@ -153,8 +161,9 @@ if __name__=="__main__":
     # print(Solution().maxProfit([5,4,3,2,1]))
     # findlist()
     # test=bibao(1,1)
-    li = [23, 94, 2, 21, 56, 6]
+    # li = [23, 94, 2, 21, 56, 6]
     # quick_sort(li, 0, len(li) - 1)
     # print(li)
-    maopao(li)
-    print(li)
+    # maopao(li)
+    # print(li)
+    print(aaa(1,2))
