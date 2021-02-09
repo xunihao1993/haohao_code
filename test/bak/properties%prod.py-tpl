@@ -1,0 +1,35 @@
+"""
+该文件主要放置线下服务器的配置项
+    DATABASES = {
+        # Add 'postgresql_psycopg2', 'postgresql', 'mysql', 'sqlite3' or 'oracle'.
+        'default': {
+            'ENGINE': 'django.db.backends.mysql',
+            'NAME': '{{ project_name }}',  # Or path to database file if using sqlite3.
+            'USER': '{{ project_name }}',  # Not used with sqlite3.
+            'PASSWORD': 'xxxxxx',  # Not used with sqlite3.
+            'HOST': 'x.x.x.x',  # Set to empty string for localhost. Not used with sqlite3.
+            'PORT': '3306',  # Set to empty string for default. Not used with sqlite3.
+            # 'CONN_MAX_AGE': 0,
+        },
+    }
+"""
+
+SERVER_ADDRESS = 'x.x.x.x'
+AMT_ENDPOINT = "x.x.x.x:xx"
+# 提交本项目的APP认证账户信息
+# iCarrier认证地址
+AUTH_SERVER_ENDPOINT = 'http://x.x.x.x'
+# 本项目的 CLIENT_ID 和 CLIENT_SECRET
+AUTH_SERVER_CLIENT_ID = 'xxxxxxxxxxxxxxxx'
+AUTH_SERVER_CLIENT_SECRET = 'xxxxxxxxxxxxxxxxxxxxxxxxxxx'
+
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": "redis://127.0.0.1:6379",
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "CONNECTION_POOL_KWARGS": {"max_connections": 100}
+        }
+    }
+}
