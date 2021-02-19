@@ -1,0 +1,51 @@
+# -*- coding: utf-8 -*-
+"""
+-------------------------------------------------------------------------------
+@author  :sdc_os
+@time    :2020/02/10
+@file    :middleware.py
+@desc    :项目中间件
+@license :(c) Copyright 2020, SDC.
+-------------------------------------------------------------------------------
+"""
+try:
+    from django.utils.deprecation import MiddlewareMixin  # Django 1.10.x
+except ImportError:
+    MiddlewareMixin = object  # Django 1.4.x - Django 1.9.x
+# from {{ project_name }}.utils.sdc_carrier_client import sdc_carrier_client
+
+
+def process_data(request, response):
+    """
+    处理数据
+    :param request:
+    :param response:
+    :return:
+    """
+    try:
+        real_ip = request.META.get('HTTP_X_FORWARDED_FOR')
+        if real_ip is None:
+            real_ip = request.META.get('REMOTE_ADDR')
+        data = dict(
+            request_scheme=request.scheme,
+            request_body=bytes.decode(request.body),
+            request_path=request.path,
+            request_path_info=request.path_info,
+            request_method=request.method,
+            request_encoding=request.encoding,
+            request_content_type=request.content_type,
+            request_content_params=request.content_params,
+            request_get=request.GET,
+            request_post=request.POST,
+            request_cookies=request.COOKIES,
+            request_meta_remote_addr=real_ip,
+            request_meta_remote_host=request.META.get('REMOTE_HOST'),
+            response_content=bytes.decode(response.content),
+            response_charset=response.charset,
+            response_status_code=response.status_code,
+            user=request.user.username if request.user else 'anonymous',
+        )
+        sdc_carrier_client.send_app_interface_visited_record(data)
+    except Exception:
+        pass
+    return True
