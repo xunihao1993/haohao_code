@@ -1,0 +1,368 @@
+#!/usr/bin/env python
+# -*-coding:utf-8 -*-
+"""
+----------------------------------------------------------------------
+@author  :sdc_os
+@time    :2020/02/10
+@file    :decorators..py
+@desc    :
+Handled exceptions raised by REST framework.
+
+In addition Django's built in 403 and 404 exceptions are handled.
+(`django.http.Http404` and `django.core.exceptions.PermissionDenied`)
+@license :(c) Copyright 2020, SDC.
+-----------------------------------------------------------------------
+"""
+import math
+
+from django.http import JsonResponse, Http404
+from django.utils import six
+from django.utils.encoding import force_str
+from django.utils.translation import gettext_lazy as _
+from django.utils.translation import ngettext
+from django.conf import settings
+from django.db import connection, transaction
+
+from rest_framework.utils.serializer_helpers import ReturnDict, ReturnList
+import rest_framework.exceptions as rest_framework_exceptions
+from rest_framework import status
+from rest_framework.response import Response
+from rest_framework.views import PermissionDenied as RestFrameworkPermissionDenied
+
+
+def _get_error_details(msg, code=None, data=None):
+    """
+    Descend into a nested data structure, forcing any
+    lazy translation strings or strings into `ErrorDetail`.
+    """
+    return ErrorDetail(msg, code, data)
+
+
+def _get_codes(detail):
+    return detail.code
+
+
+def _get_full_details(detail):
+    return {
+        "ErrorInfo": {
+            "errCode": detail.code,
+            "errDec": detail.msg,
+        },
+        "MsgInfo": detail.data,
+    }
+
+
+class ErrorDetail(six.text_type):
+    """
+    A string-like object that can additionally have a code.
+    """
+    code = None
+    data = None
+    msg = None
+
+    def __init__(self, msg=None, code=None, data=None):
+        self.msg = msg
+        self.code = code
+        self.data = data
+
+    def __new__(cls, msg=None, code=None, data=None):
+        self = super(ErrorDetail, cls).__new__(cls, msg)
+        self.code = code
+        self.data = data
+        return self
+
+    def __eq__(self, other):
+        r = super(ErrorDetail, self).__eq__(other)
+        try:
+            return r and self.code == other.code
+        except AttributeError:
+            return r
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def __repr__(self):
+        return 'ErrorDetail(msg=%r, code=%r)' % (
+            self.msg,
+            self.code,
+        )
+
+
+class APIException(Exception):
+    """
+    Base class for REST framework exceptions.
+    Subclasses should provide `.status_code` and `.default_detail` properties.
+    """
+    status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+    default_msg = _('A server error occurred.')
+    default_code = 500
+    default_data = None
+
+    def __init__(self, msg=None, code=None, data=None):
+        if msg is None:
+            msg = self.default_msg
+        if code is None:
+            code = self.default_code
+        if data is None:
+            data = self.default_data
+
+        self.detail = _get_error_details(msg, code, data)
+
+    def __str__(self):
+        return six.text_type(self.detail)
+
+    def get_codes(self):
+        """
+        Return only the code part of the error details.
+
+        Eg. {"name": ["required"]}
+        """
+        return _get_codes(self.detail)
+
+    def get_full_details(self):
+        """
+        Return both the message & code parts of the error details.
+
+        Eg. {"name": [{"message": "This field is required.", "code": "required"}]}
+        """
+        return _get_full_details(self.detail)
+
+
+# The recommended style for using `ValidationError` is to keep it namespaced
+# under `serializers`, in order to minimize potential confusion with Django's
+# built in `ValidationError`. For example:
+#
+# from rest_framework import serializers
+# raise serializers.ValidationError('Value was invalid')
+
+class ValidationError(APIException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_msg = _('Invalid input.')
+    default_code = 'invalid'
+
+    def __init__(self, msg=None, code=None):
+        if msg is None:
+            msg = self.default_msg
+        if code is None:
+            code = self.default_code
+
+        # For validation failures, we may collect many errors together,
+        # so the details should always be coerced to a list if not already.
+        if not isinstance(msg, dict) and not isinstance(msg, list):
+            msg = [msg]
+
+        self.detail = _get_error_details(msg, code)
+
+
+class ParseError(APIException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = _('Malformed request.')
+    default_code = 'parse_error'
+
+
+class AuthenticationFailed(APIException):
+    status_code = status.HTTP_401_UNAUTHORIZED
+    default_detail = _('Incorrect authentication credentials.')
+    default_code = 'authentication_failed'
+
+
+class NotAuthenticated(APIException):
+    status_code = status.HTTP_401_UNAUTHORIZED
+    default_detail = _('Authentication credentials were not provided.')
+    default_code = 'not_authenticated'
+
+
+class PermissionDenied(APIException):
+    status_code = status.HTTP_403_FORBIDDEN
+    default_detail = _('You do not have permission to perform this action.')
+    default_code = 'permission_denied'
+
+
+class NotFound(APIException):
+    status_code = status.HTTP_404_NOT_FOUND
+    default_detail = _('Not found.')
+    default_code = 'not_found'
+
+
+class MethodNotAllowed(APIException):
+    status_code = status.HTTP_405_METHOD_NOT_ALLOWED
+    default_msg = _('Method "{method}" not allowed.')
+    default_code = 'method_not_allowed'
+
+    def __init__(self, method, msg=None, code=None):
+        if msg is None:
+            msg = force_str(self.default_msg).format(method=method)
+        super().__init__(msg, code)
+
+
+class NotAcceptable(APIException):
+    status_code = status.HTTP_406_NOT_ACCEPTABLE
+    default_msg = _('Could not satisfy the request Accept header.')
+    default_code = 'not_acceptable'
+
+    def __init__(self, msg=None, code=None, available_renderers=None):
+        self.available_renderers = available_renderers
+        super().__init__(msg, code)
+
+
+class UnsupportedMediaType(APIException):
+    status_code = status.HTTP_415_UNSUPPORTED_MEDIA_TYPE
+    default_msg = _('Unsupported media type "{media_type}" in request.')
+    default_code = 'unsupported_media_type'
+
+    def __init__(self, media_type, msg=None, code=None):
+        if msg is None:
+            msg = force_str(self.default_msg).format(media_type=media_type)
+        super().__init__(msg, code)
+
+
+class Throttled(APIException):
+    status_code = status.HTTP_429_TOO_MANY_REQUESTS
+    default_msg = _('Request was throttled.')
+    extra_detail_singular = _('Expected available in {wait} second.')
+    extra_detail_plural = _('Expected available in {wait} seconds.')
+    default_code = 'throttled'
+
+    def __init__(self, wait=None, msg=None, code=None):
+        if msg is None:
+            msg = force_str(self.default_msg)
+        if wait is not None:
+            wait = math.ceil(wait)
+            msg = ' '.join((
+                msg,
+                force_str(ngettext(self.extra_detail_singular.format(wait=wait),
+                                   self.extra_detail_plural.format(wait=wait),
+                                   wait))))
+        self.wait = wait
+        super().__init__(msg, code)
+
+
+def server_error(request, *args, **kwargs):
+    """
+    Generic 500 error handler.
+    """
+    data = {
+        'error': 'Server Error (500)'
+    }
+    return JsonResponse(data, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+def bad_request(request, exception, *args, **kwargs):
+    """
+    Generic 400 error handler.
+    """
+    data = {
+        'error': 'Bad Request (400)'
+    }
+    return JsonResponse(data, status=status.HTTP_400_BAD_REQUEST)
+
+
+def set_rollback():
+    """
+    set_rollback
+    :return:
+    """
+    atomic_requests = connection.settings_dict.get('ATOMIC_REQUESTS', False)
+    if atomic_requests and connection.in_atomic_block:
+        transaction.set_rollback(True)
+
+
+def exception_handler(exc, context):
+    """
+    Returns the response that should be used for any given exception.
+
+    By default we handle the REST framework `APIException`, and also
+    Django's built-in `Http404` and `PermissionDenied` exceptions.
+
+    Any unhandled exceptions may return `None`, which will cause a 500 error
+    to be raised.
+    """
+    if isinstance(exc, Http404):
+        exc = NotFound()
+    elif isinstance(exc, RestFrameworkPermissionDenied):
+        exc = rest_framework_exceptions.PermissionDenied()
+
+    if isinstance(exc, rest_framework_exceptions.APIException):
+        headers = {}
+        if getattr(exc, 'auth_header', None):
+            headers['WWW-Authenticate'] = exc.auth_header
+        if getattr(exc, 'wait', None):
+            headers['Retry-After'] = '%d' % exc.wait
+
+        if isinstance(exc.detail, (list, dict)):
+            data = exc.detail
+        else:
+            data = {'detail': exc.detail}
+        set_rollback()
+        return Response(data, status=exc.status_code, headers=headers)
+
+    if isinstance(exc, APIException):
+        headers = {}
+        if getattr(exc, 'auth_header', None):
+            headers['WWW-Authenticate'] = exc.auth_header
+        if getattr(exc, 'wait', None):
+            headers['Retry-After'] = '%d' % exc.wait
+
+        data = exc.get_full_details()
+        return Response(data, status=exc.status_code, headers=headers)
+
+
+class ErrorCodeException(APIException):
+    """
+    ErrorCodeException
+    """
+    status_code = status.HTTP_200_OK
+    default_msg = '调用成功'
+    default_code = '0'
+
+
+class TokenAuthenticatedError(ErrorCodeException):
+    """
+    TokenAuthenticatedError
+    """
+    status_code = status.HTTP_401_UNAUTHORIZED
+    default_msg = 'Token认证失败'
+    default_code = f'0x{settings.APP_ERROR_CODE_ID}70003'
+
+
+class UnknownError(ErrorCodeException):
+    """
+    UnknownError
+    """
+    status_code = status.HTTP_200_OK
+    default_msg = '未知错误'
+    default_code = f'0x{settings.APP_ERROR_CODE_ID}30000'
+
+
+class ParamsError(ErrorCodeException):
+    """
+    ParamsError
+    """
+    default_msg = '参数错误'
+    default_code = f'0x{settings.APP_ERROR_CODE_ID}30001'
+
+
+class ApiPermissionDenied(ErrorCodeException):
+    """
+    ApiPermissionDenied
+    """
+    default_msg = '接口权限不足'
+    default_code = f'0x{settings.APP_ERROR_CODE_ID}30002'
+
+
+class TicketNotValid(ErrorCodeException):
+    """
+    TicketNotValid
+    """
+    status_code = status.HTTP_403_FORBIDDEN
+    default_msg = 'Ticket无效或过期'
+    default_code = f'0x{settings.APP_ERROR_CODE_ID}30003'
+
+
+class UserNotActive(ErrorCodeException):
+    """
+    UserNotActive
+    """
+    status_code = status.HTTP_403_FORBIDDEN
+    default_msg = '用户身份已失效，需重新激活'
+    default_code = f'0x{settings.APP_ERROR_CODE_ID}30004'
