@@ -1,0 +1,70 @@
+# -*- coding: utf-8 -*-
+"""
+-------------------------------------------------------------------------------
+@author  :sdc_os
+@time    :2020/02/10
+@file    :authentication.py
+@desc    :用户认证模块
+@license :(c) Copyright 2020, SDC.
+-------------------------------------------------------------------------------
+"""
+import datetime
+
+from django.core.cache import cache
+from rest_framework.authentication import TokenAuthentication, get_authorization_header
+
+from {{ project_name }}.utils import exceptions
+from {{ project_name }}.models import AuthToken
+
+
+class ExpiringTokenAuthentication(TokenAuthentication):
+    """Set up token expired time"""
+    model = AuthToken
+
+    def authenticate(self, request):
+        auth = get_authorization_header(request).split()
+
+        if not auth or auth[0].lower() != self.keyword.lower().encode():
+            raise exceptions.TokenAuthenticatedError(msg='Token认证失败，认证Token未提供')
+
+        if len(auth) == 1 or len(auth) > 2:
+            raise exceptions.TokenAuthenticatedError(msg='Token认证失败，不合法的Token头')
+
+        try:
+            token = auth[1].decode()
+        except UnicodeError:
+            raise exceptions.TokenAuthenticatedError(msg='Token认证失败，不合法的Token头，包含非法字符')
+
+        return self.authenticate_credentials(token)
+
+    def authenticate_credentials(self, key):
+        # Search token in cache
+        cache_user = cache.get(key)
+        if cache_user:
+            return cache_user, key
+        model = self.get_model()
+        try:
+            token = model.objects.select_related('user').get(key=key)
+            time_now = datetime.datetime.now()
+
+            if token.started <= time_now <= token.expires:
+                if token.user.category == '1':
+                    # 系统，自动给过期时间加上15天
+                    token.expires = time_now + datetime.timedelta(days=15)
+                elif token.user.category == '0':
+                    # 自然人，自动给过期时间加上12小时
+                    token.expires = time_now + datetime.timedelta(hours=12)
+                else:
+                    raise exceptions.TokenAuthenticatedError(msg='Token认证失败，不合法的用户类型')
+                token.save()
+            else:
+                raise exceptions.TokenAuthenticatedError(msg='Token认证失败，Token已过期')
+
+            if token:
+                # Cache token
+                cache.set(key, token.user, 30 * 60)
+            return token.user, token
+
+        except model.DoesNotExist:
+
+            raise exceptions.TokenAuthenticatedError(msg='Token认证失败，Token不存在')
