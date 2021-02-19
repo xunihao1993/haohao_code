@@ -1,0 +1,78 @@
+# !/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+----------------------------------------------------------------------
+@author  :30000367
+@time    :2020/04/20
+@file    :amt_client.py
+@desc    :连接amt客户端
+@license :(c) Copyright 2020, SDC.
+-----------------------------------------------------------------------
+"""
+import copy
+
+import requests
+import json as JSON
+
+from django.conf import settings
+
+# from {{ project_name }}.utils.sdc_carrier_client import sdc_carrier_client
+
+
+class AMTClient(object):
+    """
+    VAP的客戶端
+    """
+    token = None
+    api = dict(
+        get_application_token='/amt/api/token/get_token/',
+        get_task_detail="/amt/api/runner/task/task_detail/"
+    )
+
+    def __init__(self, endpoint):
+        self.endpoint = endpoint
+        self.headers = {"Content-Type": "application/json"}
+        self._set_application_token()
+
+    def _set_application_token(self):
+        ticket = sdc_carrier_client.get_ticket()
+        r = self.get(f"http://{self.endpoint}{self.api.get('get_application_token')}", params={'ticket': ticket})
+        if r.get('http_status_code') == 200 and r.get("ErrorInfo", {}).get("errCode") != "0":
+            self.headers.update({'Authorization': f'Token {r.get("MsgInfo")}'})
+            return True
+        else:
+            raise Exception('获取Application Token异常')
+
+    def get(self, url, params=None, headers=None):
+        return self.request('GET', url, params=params, headers=headers)
+
+    def post(self, url, params=None, data=None, headers=None, json=None):
+        return self.request('POST', url, data=data, params=params, headers=headers, json=json)
+
+    def request(self, method, url, **kwargs):
+        user_headers = copy.deepcopy(kwargs.get("headers"))
+        _tmp_headers = copy.deepcopy(self.headers)
+        if "headers" in kwargs:
+            _tmp_headers.update(kwargs.pop("headers") or {})
+        try:
+            r = requests.request(method, url, headers=_tmp_headers, **kwargs)
+            if r.status_code == 401:
+                # 重新认证， 此次存在死循环的bug
+                if self._set_application_token():
+                    return self.request(method, url, headers=user_headers, **kwargs)
+                else:
+                    raise Exception('校验错误')
+            res = JSON.loads(r.text)
+            res.update({'http_status_code': r.status_code})
+            return res
+        except TimeoutError:
+            raise Exception('请求超时')
+        except Exception:
+            raise
+
+    def get_task_detail(self):
+        res = self.get(f"http://{self.endpoint}{self.api.get('get_task_detail')}")
+        return res
+
+
+amt_client = AMTClient(settings.AMT_ENDPOINT)
