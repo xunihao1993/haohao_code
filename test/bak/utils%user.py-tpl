@@ -1,0 +1,60 @@
+#!/usr/bin/env python
+# -*-coding:utf-8 -*-
+"""
+----------------------------------------------------------------------
+@author  :sdc_os
+@time    :2020/02/10
+@file    :user.py
+@desc    :处理用户接口
+@license :(c) Copyright 2020, SDC.
+-----------------------------------------------------------------------
+"""
+from django.contrib.auth.models import User
+# from {{ project_name }}.utils.sdc_carrier_client import sdc_carrier_client
+
+
+def _filter_usernames(usernames):
+    db_usernames = set(
+        User.objects.filter(username__in=usernames).values_list('username', flat=True))
+    return db_usernames, usernames.difference(db_usernames)
+
+
+def _save_users_info(users_info):
+    try:
+        users_queryset = [User(**user_info) for user_info in users_info]
+        User.objects.bulk_create(users_queryset)
+    except Exception:
+        for user_info in users_info:
+            if 'is_manager' in user_info:
+                del user_info['is_manager']
+            try:
+                user = User(**user_info)
+                user.save()
+            except Exception:
+                print(user_info)
+
+
+def process_usernames(usernames=None):
+    """
+    :param usernames:  用户名列表或者用户名
+    :return: 用户名
+    """
+    if not usernames:
+        return []
+    if not (isinstance(usernames, list) or isinstance(usernames, set)):
+        usernames = (usernames, )
+    usernames = set(usernames)
+    # 过滤用户信息
+    db_usernames, db_not_exist_usernames = _filter_usernames(usernames)
+    if len(db_not_exist_usernames) > 0:
+        # 如果发现有用户不存在，就去存储去中心服务器同步没有的用户信息
+        users_info = sdc_carrier_client.get_user_info_by_usernames(list(db_not_exist_usernames))
+        if users_info is not None:
+            # 保存用户信息
+            _save_users_info(users_info)
+        # 重新查看一下用户有没有同步进来
+        db_new_usernames = set(
+            User.objects.filter(username__in=db_not_exist_usernames).values_list('username', flat=True))
+        db_usernames = db_usernames | db_new_usernames
+    # 返回处理过的新的用户名列表
+    return list(db_usernames)
