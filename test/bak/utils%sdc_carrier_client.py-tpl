@@ -1,0 +1,212 @@
+#!/usr/bin/env python
+# -*-coding:utf-8 -*-
+"""
+----------------------------------------------------------------------
+@author  :sdc_os
+@time    :2020/02/10
+@file    :sdc_carrier_client.py
+@desc    :连接carrier客户端
+@license :(c) Copyright 2020, SDC.
+-----------------------------------------------------------------------
+"""
+import requests
+import json as JSON
+
+from django.conf import settings
+
+
+class SDCCarrierClient(object):
+    """
+    SDC OS iCarrier client 端
+    """
+    token = None
+    api = dict(
+        verify_user_ticket='/icc/api/ticket/verify_ticket/',
+        get_application_ticket='/icc/api/application/get_application_ticket/',
+        get_application_token='/icc/api/application/get_application_token/',
+        get_users_info='/icc/api/app_user/get_users_info/',
+        send_html_email='/icc/api/email/send_html_email/',
+        send_app_interface_visited_record='/icc/api/record/save_app_interface_visited_record/',
+        periodic_add='/icc/api/periodic/add/',
+        periodic_edit='/icc/api/periodic/edit/',
+        periodic_delete='/icc/api/periodic/delete/',
+        periodic_get_next_run_time='/icc/api/periodic/get_next_run_time/'
+    )
+
+    def __init__(self, endpoint, client_id, client_secret):
+        self.endpoint = endpoint
+        self.client_id = client_id
+        self.client_secret = client_secret
+
+        self._init()
+
+    def get_ticket(self):
+        r = self.get(
+            '{0}{1}'.format(self.endpoint, self.api.get('get_application_ticket')),
+            params={'client_id': self.client_id, 'client_secret': self.client_secret},
+            auth=False)
+        if r.get('http_status_code') == 200 and r.get("ErrorInfo", {}).get("errCode") != "0":
+            return r.get('data')
+        else:
+            raise Exception('获取Application Ticket异常')
+
+    def _get_token(self):
+        # if ticket:
+        r = self.get(
+            '{0}{1}'.format(self.endpoint, self.api.get('get_application_token')),
+            params={'client_id': self.client_id, 'client_secret': self.client_secret},
+            auth=False)
+        if r.get('http_status_code') == 200 and r.get("ErrorInfo", {}).get("errCode") != "0":
+            return r.get('data')
+        else:
+            # print(r)
+            raise Exception('获取Application Token异常')
+        # else:
+        #     raise Exception('无效的Ticket')
+
+    def _init(self):
+        self.token = self._get_token()
+        return True
+
+    def get(self, url, params=None, headers=None, auth=True):
+        return self.request('GET', url, params=params, headers=headers, auth=auth)
+
+    def post(self, url, params=None, data=None, headers=None, auth=True, json=None):
+        return self.request(
+            'POST', url, data=data, params=params, headers=headers, auth=auth, json=json)
+
+    def request(self, method, url, params=None, data=None, headers=None, auth=True, json=None):
+        if auth:
+            headers = headers if isinstance(headers, dict) else {}
+            headers.update({'Authorization': 'Token {}'.format(self.token)})
+        try:
+            r = requests.request(
+                method, url, params=params, headers=headers, data=data, json=json)
+            if r.status_code == 401:
+                # 重新请求
+                if self._init():
+                    return self.request(
+                        method, url, params=params, data=data,
+                        headers=headers, auth=auth, json=json
+                    )
+                else:
+                    raise Exception('校验错误')
+            res = JSON.loads(r.text)
+            res.update({'http_status_code': r.status_code})
+            return res
+        except TimeoutError:
+            print('请求超时')
+        except Exception:
+            raise
+
+    def verify_user_ticket(self, ticket):
+        r = self.get('{0}{1}'.format(
+            self.endpoint, self.api.get('verify_user_ticket')), params={'ticket': ticket})
+        if r.get('http_status_code') == 200:
+            return r.get('MsgInfo')
+        else:
+            return ""
+
+    def get_user_info_by_usernames(self, usernames):
+        r = self.post('{0}{1}'.format(
+            self.endpoint, self.api.get('get_users_info')), json={'username': usernames})
+        if r.get('http_status_code') == 200:
+            return r.get('MsgInfo')
+        else:
+            return ""
+
+    def send_html_email(self, subject, to, body, cc=None, attachments=None):
+        r = self.post(
+            '{0}{1}'.format(self.endpoint, self.api.get('send_html_email')),
+            json={
+                'subject': subject,
+                'to': to,
+                'body': body,
+                'cc': cc or [],
+                'attachments': attachments or []
+            }
+        )
+        if r.get('http_status_code') == 200:
+            return r.get('MsgInfo')
+        else:
+            return ""
+
+    def send_app_interface_visited_record(self, data=None):
+        r = self.post('{0}{1}'.format(self.endpoint, self.api.get('send_app_interface_visited_record')),
+                      json=data)
+        if r.get('http_status_code') == 200:
+            return r.get('MsgInfo')
+        else:
+            return ""
+
+    def _periodic_add(self, data):
+        r = self.post('{0}{1}'.format(self.endpoint, self.api.get('periodic_add')),
+                      json=data)
+        if r.get('http_status_code') == 200:
+
+            return r.get('MsgInfo')
+        else:
+            return ""
+
+    def _periodic_edit(self, data):
+        r = self.post('{0}{1}'.format(self.endpoint, self.api.get('periodic_edit')),
+                      json=data)
+        if r.get('http_status_code') == 200:
+            return r.get('MsgInfo')
+        else:
+            return ""
+
+    def _periodic_delete(self, periodic_id):
+        r = self.post('{0}{1}'.format(self.endpoint, self.api.get('periodic_delete')),
+                      json={'job_id': periodic_id})
+
+        if r.get('http_status_code') == 200:
+            return r.get('MsgInfo')
+        else:
+            return ""
+
+    def _periodic_get_next_run_time(self, periodic_id):
+        r = self.get('{0}{1}'.format(self.endpoint, self.api.get('periodic_get_next_run_time')),
+                     params={'job_id': periodic_id})
+        if r.get('http_status_code') == 200:
+            return r.get('MsgInfo')
+        else:
+            return ""
+
+    def periodic(self, action, periodic_id, trigger_args=None, uri=None, method='GET', header=None, params=None,
+                 data=None, json=None, force_edit_or_create=False, http_server=settings.SERVER_ADDRESS):
+        if not isinstance(trigger_args, dict):
+            raise Exception('trigger_args必须为dict')
+        _action = '_periodic_{}'.format(action)
+        periodic_id = f"[{settings.ENV}]{periodic_id}"
+        if hasattr(self, _action):
+            _fun = getattr(self, _action)
+            res = None
+
+            if action in ['delete', 'get_next_run_time']:
+                res = _fun(periodic_id)
+
+            elif action in ['add', 'edit']:
+                periodic_data = {
+                    'job_id': periodic_id,
+                    'trigger_args': trigger_args,
+                    'uri': uri,
+                    'method': method,
+                    'header': header,
+                    'params': params,
+                    'data': data,
+                    'json': json,
+                    'force_edit_or_create': force_edit_or_create,
+                    'http_server': http_server
+                }
+                res = _fun(periodic_data)
+            return res
+        else:
+            raise Exception('不支持的action')
+
+
+sdc_carrier_client = SDCCarrierClient(
+    settings.AUTH_SERVER_ENDPOINT,
+    settings.AUTH_SERVER_CLIENT_ID,
+    settings.AUTH_SERVER_CLIENT_SECRET
+)
