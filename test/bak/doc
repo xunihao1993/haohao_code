@@ -1,0 +1,84 @@
+后端基座搭建手册
+一、	环境准备
+1.	Python安装，版本3.6.8
+2.	Django安装，版本2.2.10
+以上两点可通过以下方式确认：
+python--version
+django-admin --version
+ 
+3.	Pycharm安装
+4.	Demo 的模板下载，在文档最后的附件清单中（后续会放置git中）
+二、	根据基座新建项目
+1.	新建项目
+进入项目存放的路径，输入命令：django-admin startproject --template D:\world\ighouce\sdc_template project_name
+说明：
+a.	D:\world\ighouce\sdc_template 为环境准备中4的文件所在目录，目录结构如下：
+ 
+b.	命令执行结束后，会在当前目录下生成以project_name为文件夹的项目，目录结构如下：
+ 
+2.	配置pycharm的项目环境
+ 
+
+3.	安装项目依赖
+打开terminal，输入安装命令，如下图：
+ 
+说明：
+a.	若mysqlclient安装失败，提示需要vs环境，则下载whl文件安装，
+4.	修改参数
+a.	修改settings中的ENV为local，如下图：
+ 
+b.	修改properties/local中数据库连接等参数，如下图：
+ 
+说明：
+1)	数据库可以自己搭建也可以统一提供，待后期确认
+5.	初始化项目和数据库
+在pycharm的terminal中依次输入以下命令：
+1)	python manage.py makemigrations   执行结果如下图：
+ 
+2)	python manage.py migrate   执行结果如下图：
+ 
+6.	创建超级管理员
+python manage.py createsuperuser
+
+ 
+7.	启动项目
+自开发环境启动，以下两种方式：
+1)	直接在terminal中输入python manage.py runserver 0.0.0.0:8088
+2)	在pycharm中配置启动参数，如下图：
+在下拉列表中选择”Edit Configuaritons”后如下图：
+ 
+		发布部署环境：
+1)	Windows：
+方式：创建好虚拟环境后，直接运行项目目录中的start.bat即可
+说明：该种部署方式不稳定，建议做临时过渡时使用
+2)	Linux：
+a)	采用nginx+uwsgi：适用于有较高要求的应用
+b)	采用nginx+guncion：适用于一般应用
+8.	检查是否启动成功
+1)	访问以下网址：http://xx.xx.xx.xx:8088/sdc/api/demo/，出现以下页面，则表示启动成功：
+ 
+2)	访问http://xx.xx.xx.xx:8088/admin/， 使用刚的超级账户登入，可以看到用户表，则表示启动成功
+
+三、	应用场景
+1.	最简单场景
+场景说明：仅有少数几个接口，无需数据存储。
+操作：
+a）	在第四步中只要修该一处，将settings文件中，最后一行注释掉即可，如下图:
+ 
+b）	然后直接到第七步启动项目和第八步
+2.	稍微复杂一点的场景
+场景说明：访问量不大，且要求数据存储不高，该情况下，采用sqlite进行数据存储
+操作：
+a）	在第四步只要修该一处，将settings文件中，最后一行注释掉即可，如下图:
+ 
+b）	从第五步开始按照步骤操作
+3.	较为大型的应用
+场景说明：访问量大，或者支持防护网的例行工作，需要有单独的UI支持工具
+操作： 需严格按照搭建步骤进行搭建，且不允许部署在windows上
+四、	附件清单
+1.	模板文件：
+  
+2.	Mysqlclient的whl文件
+  
+
+
