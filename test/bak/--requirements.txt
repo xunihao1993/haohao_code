@@ -4,4 +4,4 @@ django-redis==4.9.0
 djangorestframework==3.8.2
 mysqlclient==1.4.6
 requests==2.18.4
-PyYaml==5.3
+PyYaml==5.4
